@@ -48,10 +48,21 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
     # Send the descriptors that you want to read into or write from
     logger.info(f"Sending {operation} request to {remote_agent_name}")
     test_descs_str = my_agent.get_serialized_descs(my_mem_descs)
-    my_agent.send_notif(remote_agent_name, operation + test_descs_str)
 
-    while not my_agent.check_remote_xfer_done(remote_agent_name, b"COMPLETE"):
-        continue
+    start_time = time.perf_counter()
+
+    for i in range (1, 1000):
+
+        my_agent.send_notif(remote_agent_name, operation + test_descs_str)
+
+        while not my_agent.check_remote_xfer_done(remote_agent_name, b"COMPLETE"):
+            continue
+
+    end_time = time.perf_counter()
+
+    elapsed = end_time - start_time
+
+    logger.info(f"Time for 1000 iterations: {elapsed} seconds")
 
 
 def connect_to_agents(my_agent, agents_file):
@@ -84,7 +95,7 @@ def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
     # Wait for initiator to send list of memory descriptors
     notifs = my_agent.get_new_notifs()
 
-    logger.info("Waiting for a remote transfer request...")
+#    logger.info("Waiting for a remote transfer request...")
 
     while len(notifs) == 0:
         notifs = my_agent.get_new_notifs()
@@ -103,12 +114,12 @@ def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
 
         sent_descs = my_agent.deserialize_descs(recv_msg[4:])
 
-        logger.info("Checking to ensure metadata is loaded...")
-        while my_agent.check_remote_metadata(req_agent, sent_descs) is False:
-            continue
+#        logger.info("Checking to ensure metadata is loaded...")
+#        while my_agent.check_remote_metadata(req_agent, sent_descs) is False:
+#            continue
 
         if operation == "READ":
-            logger.info("Starting READ operation")
+#            logger.info("Starting READ operation")
 
             # Read from file first
             execute_transfer(
@@ -118,7 +129,7 @@ def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
             execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "WRITE")
 
         elif operation == "WRITE":
-            logger.info("Starting WRITE operation")
+#            logger.info("Starting WRITE operation")
 
             # Read from client first
             execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "READ")
@@ -130,7 +141,7 @@ def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
         # Send completion notification to initiator
         my_agent.send_notif(req_agent, b"COMPLETE")
 
-    logger.info("One transfer test complete.")
+#    logger.info("One transfer test complete.")
 
 
 def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
@@ -138,20 +149,41 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
 
     # For sample purposes, write to and then read from local storage
     logger.info("Starting local transfer test...")
-    execute_transfer(
-        my_agent,
-        nixl_mem_reg_descs.trim(),
-        nixl_file_reg_descs.trim(),
-        my_agent.name,
-        "WRITE",
-    )
-    execute_transfer(
-        my_agent,
-        nixl_mem_reg_descs.trim(),
-        nixl_file_reg_descs.trim(),
-        my_agent.name,
-        "READ",
-    )
+
+    start_time = time.perf_counter()
+
+    for i in range (1, 1000):
+        execute_transfer(
+            my_agent,
+            nixl_mem_reg_descs.trim(),
+            nixl_file_reg_descs.trim(),
+            my_agent.name,
+            "WRITE",
+        )
+
+    end_time = time.perf_counter()
+
+    elapsed = end_time - start_time
+
+    logger.info(f"Time for 1000 WRITE iterations: {elapsed} seconds")
+
+    start_time = time.perf_counter()
+
+    for i in range (1, 1000):
+        execute_transfer(
+            my_agent,
+            nixl_mem_reg_descs.trim(),
+            nixl_file_reg_descs.trim(),
+            my_agent.name,
+            "READ",
+        )
+
+    end_time = time.perf_counter()
+
+    elapsed = end_time - start_time
+
+    logger.info(f"Time for 1000 READ iterations: {elapsed} seconds")
+
     logger.info("Local transfer test complete")
 
     logger.info("Starting remote transfer test...")

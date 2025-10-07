@@ -152,7 +152,7 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
 
     start_time = time.perf_counter()
 
-    for i in range (1, 1000):
+    for i in range (1, 10):
         execute_transfer(
             my_agent,
             nixl_mem_reg_descs.trim(),
@@ -165,11 +165,11 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
 
     elapsed = end_time - start_time
 
-    logger.info(f"Time for 1000 WRITE iterations: {elapsed} seconds")
+    logger.info(f"Time for 10 WRITE iterations: {elapsed} seconds")
 
     start_time = time.perf_counter()
 
-    for i in range (1, 1000):
+    for i in range (1, 10):
         execute_transfer(
             my_agent,
             nixl_mem_reg_descs.trim(),
@@ -182,7 +182,7 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
 
     elapsed = end_time - start_time
 
-    logger.info(f"Time for 1000 READ iterations: {elapsed} seconds")
+    logger.info(f"Time for 10 READ iterations: {elapsed} seconds")
 
     logger.info("Local transfer test complete")
 

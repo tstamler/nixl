@@ -66,7 +66,8 @@ def setup_memory_and_files(agent, batch_size, buf_size, fileprefix):
 
     for i in range(batch_size):
         my_mem_list.append(nixl_utils.malloc_passthru(buf_size))
-        my_file_list.append(os.open(f"{fileprefix}_{i}", os.O_RDWR | os.O_CREAT))
+        #my_file_list.append(os.open(f"{fileprefix}_{i}", os.O_RDWR | os.O_CREAT))
+        my_file_list.append(os.open(f"{fileprefix}_{i}", os.O_RDWR | os.O_CREAT | os.O_DIRECT))
         nixl_mem_reg_list.append((my_mem_list[-1], buf_size, 0, str(i)))
         nixl_file_reg_list.append((0, buf_size, my_file_list[-1], str(i)))
 

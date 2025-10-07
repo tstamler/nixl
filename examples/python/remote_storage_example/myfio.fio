@@ -1,0 +1,15 @@
+[global]
+ioengine=posixaio
+direct=1
+group_reporting=1
+time_based=1
+runtime=10
+nrfiles=32
+bs=32M
+size=1G
+numjobs=1
+iodepth=32
+directory=/raid/scratch/testfiles ; Replace with your desired directory path
+
+[my_job]
+rw=read ; Or read, randwrite, randread as needed

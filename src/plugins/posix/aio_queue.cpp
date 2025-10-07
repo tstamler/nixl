@@ -107,7 +107,8 @@ nixl_status_t aioQueue::checkCompleted() {
         if (status == 0) {  // Operation completed
             ssize_t ret = aio_return(&aiocbs[i]);
             if (ret < 0 || ret != static_cast<ssize_t>(aiocbs[i].aio_nbytes)) {
-                NIXL_PERROR << "AIO operation failed or incomplete";
+                
+		NIXL_PERROR << "AIO operation failed or incomplete with ret" << ret;
                 return NIXL_ERR_BACKEND;
             }
             num_completed++;

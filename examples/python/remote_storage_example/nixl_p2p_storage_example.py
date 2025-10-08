@@ -18,6 +18,7 @@ NIXL Peer-to-Peer Storage Example
 Demonstrates peer-to-peer storage transfers using NIXL with initiator and target modes.
 """
 
+import concurrent.futures
 import time
 
 import nixl_storage_utils as nsu
@@ -46,24 +47,23 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
     else:
         operation = b"READ"
 
+    iterations = b"1000"
     # Send the descriptors that you want to read into or write from
     logger.info(f"Sending {operation} request to {remote_agent_name}")
     test_descs_str = my_agent.get_serialized_descs(my_mem_descs)
 
     start_time = time.perf_counter()
 
-    for i in range (1, 100):
+    my_agent.send_notif(remote_agent_name, operation + iterations + test_descs_str)
 
-        my_agent.send_notif(remote_agent_name, operation + test_descs_str)
-
-        while not my_agent.check_remote_xfer_done(remote_agent_name, b"COMPLETE"):
-            continue
+    while not my_agent.check_remote_xfer_done(remote_agent_name, b"COMPLETE"):
+        continue
 
     end_time = time.perf_counter()
 
     elapsed = end_time - start_time
 
-    logger.info(f"Time for 100 iterations: {elapsed} seconds")
+    logger.info(f"Time for {iterations} iterations: {elapsed} seconds")
 
 
 def connect_to_agents(my_agent, agents_file):
@@ -90,6 +90,61 @@ def connect_to_agents(my_agent, agents_file):
 
     return target_agents
 
+def pipeline_reads(my_agent, req_agent, my_mem_descs, my_file_descs, sent_descs, iterations):
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        n = 0
+        s = 0
+
+        while n < iterations and s < iterations:
+            
+            if s == 0:
+                execute_transfer(my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ")
+                s+=1
+                continue
+
+            if s == iterations:
+                execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "WRITE")
+                n+=1
+                continue
+
+            # Do two storage and network in parallel
+            future1 = executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ")
+            future2 = executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "WRITE")
+
+            done, not_done = concurrent.futures.wait([future1, future2], return_when=concurrent.futures.ALL_COMPLETED)
+            assert not not_done
+
+            s+=1
+            n+=1
+
+def pipeline_writes(my_agent, req_agent, my_mem_descs, my_file_descs, sent_descs, iterations):
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        n = 0
+        s = 0
+
+        while n < iterations and s < iterations:
+            
+            if n == 0:
+                execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "READ")
+                n+=1
+                continue
+
+            if n == iterations:
+                execute_transfer(my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE")
+                s+=1
+                continue
+
+            # Do two storage and network in parallel
+            future1 = executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "READ")
+            future2 = executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE")
+
+            done, not_done = concurrent.futures.wait([future1, future2], return_when=concurrent.futures.ALL_COMPLETED)
+            assert not not_done
+
+            s+=1
+            n+=1
 
 def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
     """Handle remote memory and storage transfers as target."""
@@ -113,32 +168,17 @@ def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
             logger.error("Invalid operation, exiting")
             exit(-1)
 
-        sent_descs = my_agent.deserialize_descs(recv_msg[4:])
+        iterations = int(recv_msg[4:8])
 
-#        logger.info("Checking to ensure metadata is loaded...")
-#        while my_agent.check_remote_metadata(req_agent, sent_descs) is False:
-#            continue
+        logger.info("Performing {operation} with {iterations} iterations")
+
+        sent_descs = my_agent.deserialize_descs(recv_msg[8:])
 
         if operation == "READ":
-#            logger.info("Starting READ operation")
-
-            # Read from file first
-            execute_transfer(
-                my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ"
-            )
-            # Send to client
-            execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "WRITE")
-
+            pipeline_reads(my_agent, req_agent, my_mem_descs, my_file_descs, sent_descs, iterations)
         elif operation == "WRITE":
-#            logger.info("Starting WRITE operation")
-
-            # Read from client first
-            execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "READ")
-            # Write to storage
-            execute_transfer(
-                my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE"
-            )
-
+            pipeline_writes(my_agent, req_agent, my_mem_descs, my_file_descs, sent_descs, iterations)
+    
         # Send completion notification to initiator
         my_agent.send_notif(req_agent, b"COMPLETE")
 

@@ -27,8 +27,9 @@ from nixl.logging import get_logger
 logger = get_logger(__name__)
 
 
-def execute_transfer(my_agent, local_descs, remote_descs, remote_name, operation):
-    handle = my_agent.initialize_xfer(operation, local_descs, remote_descs, remote_name)
+def execute_transfer(my_agent, local_descs, remote_descs, remote_name, operation, use_backends = []):
+
+    handle = my_agent.initialize_xfer(operation, local_descs, remote_descs, remote_name, backends=use_backends)
     my_agent.transfer(handle)
     nsu.wait_for_transfer(my_agent, handle)
     my_agent.release_xfer_handle(handle)
@@ -51,7 +52,7 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
 
     start_time = time.perf_counter()
 
-    for i in range (1, 1000):
+    for i in range (1, 100):
 
         my_agent.send_notif(remote_agent_name, operation + test_descs_str)
 
@@ -62,7 +63,7 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
 
     elapsed = end_time - start_time
 
-    logger.info(f"Time for 1000 iterations: {elapsed} seconds")
+    logger.info(f"Time for 100 iterations: {elapsed} seconds")
 
 
 def connect_to_agents(my_agent, agents_file):
@@ -152,37 +153,41 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
 
     start_time = time.perf_counter()
 
-    for i in range (1, 10):
+    for i in range (1, 100):
         execute_transfer(
             my_agent,
             nixl_mem_reg_descs.trim(),
             nixl_file_reg_descs.trim(),
             my_agent.name,
             "WRITE",
+#            ["POSIX"]
+            ["GDS_MT"]
         )
 
     end_time = time.perf_counter()
 
     elapsed = end_time - start_time
 
-    logger.info(f"Time for 10 WRITE iterations: {elapsed} seconds")
+    logger.info(f"Time for 100 WRITE iterations: {elapsed} seconds")
 
     start_time = time.perf_counter()
 
-    for i in range (1, 10):
+    for i in range (1, 100):
         execute_transfer(
             my_agent,
             nixl_mem_reg_descs.trim(),
             nixl_file_reg_descs.trim(),
             my_agent.name,
             "READ",
+#            ["POSIX"]
+            ["GDS_MT"]
         )
 
     end_time = time.perf_counter()
 
     elapsed = end_time - start_time
 
-    logger.info(f"Time for 10 READ iterations: {elapsed} seconds")
+    logger.info(f"Time for 100 READ iterations: {elapsed} seconds")
 
     logger.info("Local transfer test complete")
 
@@ -233,6 +238,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    mem = "DRAM"
+
+    if args.role == "client":
+        mem = "VRAM"
+
     my_agent = nsu.create_agent_with_plugins(args.name, args.port)
 
     (
@@ -241,7 +251,7 @@ if __name__ == "__main__":
         nixl_mem_reg_descs,
         nixl_file_reg_descs,
     ) = nsu.setup_memory_and_files(
-        my_agent, args.batch_size, args.buf_size, args.fileprefix
+        my_agent, args.batch_size, args.buf_size, args.fileprefix, mem
     )
 
     if args.role == "client":

@@ -47,7 +47,7 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
     else:
         operation = b"READ"
 
-    iterations = b"1000"
+    iterations = b"0100"
     # Send the descriptors that you want to read into or write from
     logger.info(f"Sending {operation} request to {remote_agent_name}")
     test_descs_str = my_agent.get_serialized_descs(my_mem_descs)
@@ -95,56 +95,58 @@ def pipeline_reads(my_agent, req_agent, my_mem_descs, my_file_descs, sent_descs,
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         n = 0
         s = 0
+        futures = []
 
         while n < iterations and s < iterations:
             
             if s == 0:
-                execute_transfer(my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ")
+                futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ"))
                 s+=1
                 continue
 
             if s == iterations:
-                execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "WRITE")
+                futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "WRITE"))
                 n+=1
                 continue
 
             # Do two storage and network in parallel
-            future1 = executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ")
-            future2 = executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "WRITE")
-
-            done, not_done = concurrent.futures.wait([future1, future2], return_when=concurrent.futures.ALL_COMPLETED)
-            assert not not_done
-
+            futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "READ"))
+            futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "WRITE"))
             s+=1
             n+=1
+
+
+        done, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
+        assert not not_done
 
 def pipeline_writes(my_agent, req_agent, my_mem_descs, my_file_descs, sent_descs, iterations):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         n = 0
         s = 0
+        futures = []
 
         while n < iterations and s < iterations:
             
-            if n == 0:
-                execute_transfer(my_agent, my_mem_descs, sent_descs, req_agent, "READ")
-                n+=1
-                continue
-
-            if n == iterations:
-                execute_transfer(my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE")
+            if s == 0:
+                futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "READ"))
                 s+=1
                 continue
 
+            if s == iterations:
+                futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE"))
+                n+=1
+                continue
+
             # Do two storage and network in parallel
-            future1 = executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "READ")
-            future2 = executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE")
-
-            done, not_done = concurrent.futures.wait([future1, future2], return_when=concurrent.futures.ALL_COMPLETED)
-            assert not not_done
-
+            futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, sent_descs, req_agent, "READ"))
+            futures.append(executor.submit(execute_transfer, my_agent, my_mem_descs, my_file_descs, my_agent.name, "WRITE"))
             s+=1
             n+=1
+
+
+        done, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
+        assert not not_done
 
 def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
     """Handle remote memory and storage transfers as target."""
@@ -170,7 +172,7 @@ def handle_remote_transfer_request(my_agent, my_mem_descs, my_file_descs):
 
         iterations = int(recv_msg[4:8])
 
-        logger.info("Performing {operation} with {iterations} iterations")
+        logger.info(f"Performing {operation} with {iterations} iterations")
 
         sent_descs = my_agent.deserialize_descs(recv_msg[8:])
 

@@ -18,6 +18,7 @@ NIXL Peer-to-Peer Storage Example
 Demonstrates peer-to-peer storage transfers using NIXL with initiator and target modes.
 """
 
+import concurrent.futures
 import time
 
 import nixl_storage_utils as nsu
@@ -64,6 +65,8 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
     elapsed = end_time - start_time
 
     logger.info(f"Time for 100 iterations: {elapsed} seconds")
+
+    return elapsed
 
 
 def connect_to_agents(my_agent, agents_file):
@@ -196,13 +199,28 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
     target_agents = connect_to_agents(my_agent, agents_file)
 
     # For sample purposes, write to and then read from each target agent
-    for target_agent in target_agents:
-        remote_storage_transfer(
-            my_agent, nixl_mem_reg_descs.trim(), "WRITE", target_agent
-        )
-        remote_storage_transfer(
-            my_agent, nixl_mem_reg_descs.trim(), "READ", target_agent
-        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        
+        futures = []
+        for target_agent in target_agents:
+            futures.append( executor.submit(
+                remote_storage_transfer, my_agent, nixl_mem_reg_descs.trim(), "WRITE", target_agent
+            ) )
+
+
+        for future in futures:
+            print(future.result())
+        
+        futures = []
+        for target_agent in target_agents:
+            futures.append( executor.submit(
+                remote_storage_transfer, my_agent, nixl_mem_reg_descs.trim(), "READ", target_agent
+            ) )
+
+        for future in futures:
+            print(future.result())
+        
 
     logger.info("Remote transfer test complete")
 

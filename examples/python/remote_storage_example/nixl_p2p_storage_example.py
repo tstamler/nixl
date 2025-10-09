@@ -52,18 +52,16 @@ def remote_storage_transfer(my_agent, my_mem_descs, operation, remote_agent_name
     logger.info(f"Sending {operation} request to {remote_agent_name}")
     test_descs_str = my_agent.get_serialized_descs(my_mem_descs)
 
-    start_time = time.perf_counter()
+    start_time = time.time()
 
     my_agent.send_notif(remote_agent_name, operation + iterations + test_descs_str)
 
     while not my_agent.check_remote_xfer_done(remote_agent_name, b"COMPLETE"):
         continue
 
-    end_time = time.perf_counter()
+    end_time = time.time()
 
-    elapsed = end_time - start_time
-
-    logger.info(f"Time for {iterations} iterations: {elapsed} seconds")
+    logger.info(f"Time for {iterations} iterations: {end_time - start_time} seconds")
 
 
 def connect_to_agents(my_agent, agents_file):
@@ -193,7 +191,7 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
     # For sample purposes, write to and then read from local storage
     logger.info("Starting local transfer test...")
 
-    start_time = time.perf_counter()
+    start_time = time.time()
 
     for i in range (1, 100):
         execute_transfer(
@@ -206,13 +204,13 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
             ["GDS_MT"]
         )
 
-    end_time = time.perf_counter()
+    end_time = time.time()
 
     elapsed = end_time - start_time
 
     logger.info(f"Time for 100 WRITE iterations: {elapsed} seconds")
 
-    start_time = time.perf_counter()
+    start_time = time.time()
 
     for i in range (1, 100):
         execute_transfer(
@@ -225,7 +223,7 @@ def run_client(my_agent, nixl_mem_reg_descs, nixl_file_reg_descs, agents_file):
             ["GDS_MT"]
         )
 
-    end_time = time.perf_counter()
+    end_time = time.time()
 
     elapsed = end_time - start_time
 

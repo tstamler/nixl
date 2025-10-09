@@ -38,7 +38,7 @@ def create_agent_with_plugins(agent_name, port):
     plugin_list = new_nixl_agent.get_plugin_list()
 
     if "GDS_MT" in plugin_list:
-        new_nixl_agent.create_backend("GDS_MT", {"thread_count": "8"})
+        new_nixl_agent.create_backend("GDS_MT")
         logger.info("Using GDS storage backend")
     if "POSIX" in plugin_list:
         new_nixl_agent.create_backend("POSIX")

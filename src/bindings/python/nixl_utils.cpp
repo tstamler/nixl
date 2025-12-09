@@ -38,6 +38,11 @@ void ba_buf(uintptr_t addr, int size) {
 }
 
 //JUST FOR TESTING
+void verify_n(uintptr_t addr1, int num, int size) {
+    for(int i = 0; i<size; i++) assert(((uint8_t*) addr1)[i] == num);
+}
+
+//JUST FOR TESTING
 void verify_transfer(uintptr_t addr1, uintptr_t addr2, int size) {
     for(int i = 0; i<size; i++) assert(((uint8_t*) addr1)[i] == ((uint8_t*) addr2)[i]);
 }
@@ -47,4 +52,5 @@ PYBIND11_MODULE(_utils, m) {
     m.def("free_passthru", &free_passthru);
     m.def("ba_buf", &ba_buf);
     m.def("verify_transfer", &verify_transfer);
+    m.def("verify_n", &verify_n);
 }

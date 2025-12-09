@@ -606,6 +606,13 @@ class nixl_agent:
         else:
             return "ERR"
 
+    def device_transfer(self, handle: nixl_xfer_handle, size: int) -> str:
+        status = self.agent.deviceTransfer(handle._handle, size)
+        if status == nixlBind.NIXL_SUCCESS:
+            return "DONE"
+        else:
+            return "ERR"
+
     """
     @brief Check the state of a transfer operation.
 

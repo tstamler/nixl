@@ -22,13 +22,112 @@
 
 #include <tuple>
 #include <iostream>
+#include <cuda_runtime.h>
 
 #include "nixl.h"
+#include <nixl_device.cuh>
 #include "serdes/serdes.h"
 
 namespace py = pybind11;
 
 typedef std::map<std::string, std::vector<py::bytes>> nixl_py_notifs_t;
+
+template<nixl_gpu_level_t level>
+__global__ void
+TestSingleWriteKernel(nixlGpuXferReqH req_hdnl,
+                      unsigned index,
+                      size_t src_offset,
+                      size_t remote_offset,
+                      size_t size,
+                      size_t num_iters,
+                      bool is_no_delay) {
+    __shared__ nixlGpuXferStatusH xfer_status[MAX_THREADS];
+    nixlGpuXferStatusH *xfer_status_ptr = &xfer_status[GetReqIdx<level>()];
+    nixl_status_t status;
+
+    assert(GetReqIdx<level>() < MAX_THREADS);
+
+    __syncthreads();
+
+    for (size_t i = 0; i < num_iters; ++i) {
+        status = nixlGpuPostSingleWriteXferReq<level>(
+            req_hdnl, index, src_offset, remote_offset, size, 0, is_no_delay, xfer_status_ptr);
+        if (status != NIXL_IN_PROG) {
+            printf("Thread %d: nixlGpuPostSingleWriteXferReq failed iteration %lu: status=%d (0x%x)\n",
+                   threadIdx.x,
+                   (unsigned long)i,
+                   status,
+                   static_cast<unsigned int>(status));
+            return;
+        }
+
+        status = nixlGpuGetXferStatus<level>(*xfer_status_ptr);
+        if (status != NIXL_SUCCESS && status != NIXL_IN_PROG) {
+            printf("Thread %d: Failed to progress single write transfer iteration %zu: status=%d\n",
+                   threadIdx.x,
+                   i,
+                   status);
+            return;
+        }
+
+        while (status == NIXL_IN_PROG) {
+            status = nixlGpuGetXferStatus<level>(*xfer_status_ptr);
+            if (status != NIXL_SUCCESS && status != NIXL_IN_PROG) {
+                printf("Thread %d: Failed to progress single write transfer iteration %zu: status=%d\n",
+                       threadIdx.x,
+                       i,
+                       status);
+                return;
+            }
+        }
+
+        if (status != NIXL_SUCCESS) {
+            printf("Thread %d: Transfer completion failed iteration %zu: status=%d\n",
+                   threadIdx.x,
+                   i,
+                   status);
+            return;
+        }
+    }
+}
+
+template<nixl_gpu_level_t level>
+nixl_status_t
+LaunchSingleWriteTest(unsigned num_threads,
+                      nixlGpuXferReqH req_hdnl,
+                      unsigned index,
+                      size_t src_offset,
+                      size_t remote_offset,
+                      size_t size,
+                      size_t num_iters,
+                      bool is_no_delay) {
+    nixl_status_t ret = NIXL_SUCCESS;
+    cudaError_t err;
+
+    TestSingleWriteKernel<level><<<1, num_threads>>>(req_hdnl,
+                                                     index,
+                                                     src_offset,
+                                                     remote_offset,
+                                                     size,
+                                                     num_iters,
+                                                     is_no_delay,
+                                                     start_time_ptr,
+                                                     end_time_ptr);
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        printf("Failed to synchronize: %s\n", cudaGetErrorString(err));
+        ret = NIXL_ERR_BACKEND;
+    }
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("Failed to launch kernel: %s\n", cudaGetErrorString(err));
+        ret = NIXL_ERR_BACKEND;
+    }
+
+    return ret;
+}
 
 class nixlNotPostedError : public std::runtime_error {
 public:
@@ -645,6 +744,16 @@ PYBIND11_MODULE(_bindings, m) {
             py::arg("remote_agent"),
             py::arg("notif_msg") = std::string(""),
             py::arg("backend") = std::vector<uintptr_t>({}))
+        .def("deviceTransfer",
+             [](nixlAgent &agent, uintptr_t reqh, size_t size) -> nixl_status_t {
+                nixlGpuXferReqH gpu_req_hndl;
+                nixl_status_t ret = agent.createGpuXferReq((nixlXferReqH *)reqh, gpu_req_hndl);
+                throw_nixl_exception(ret);
+
+                ret = LaunchSingleWriteTest<nixl_gpu_level_t::BLOCK>(1, gpu_req_hndl, 0, 0, size, 0, 1, true);
+                throw_nixl_exception(ret);
+                return ret;
+            })
         .def(
             "estimateXferCost",
             [](nixlAgent &agent, uintptr_t reqh) -> std::tuple<int64_t, int64_t, int> {

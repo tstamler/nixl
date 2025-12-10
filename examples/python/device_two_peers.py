@@ -87,7 +87,7 @@ if __name__ == "__main__":
         # Waiting for transfer
         while True:
             logger.info("Verifying data...")
-            ret = nixl_utils.verify_n(tensor[0][0], 1, 16 * 4)
+            ret = nixl_utils.verify_n(tensor[0][0], 0xff, 16 * 4)
 
             if ret == 1:
                 logger.info("Data verification passed")

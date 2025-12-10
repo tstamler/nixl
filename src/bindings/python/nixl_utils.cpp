@@ -38,8 +38,11 @@ void ba_buf(uintptr_t addr, int size) {
 }
 
 //JUST FOR TESTING
-void verify_n(uintptr_t addr1, int num, int size) {
-    for(int i = 0; i<size; i++) assert(((uint8_t*) addr1)[i] == num);
+int verify_n(uintptr_t addr1, int num, int size) {
+    for(int i = 0; i<size; i++) {
+	    if(((uint8_t*) addr1)[i] != num) return 0;
+    }
+    return 1;
 }
 
 //JUST FOR TESTING

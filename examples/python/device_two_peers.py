@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-
+import time
 import torch
 
 from nixl._api import nixl_agent, nixl_agent_config
@@ -85,12 +85,14 @@ if __name__ == "__main__":
 
         # Waiting for transfer
         while True:
-            notifs = agent.get_new_notifs()
-            if "initiator" in notifs and b"Done_reading" in notifs["initiator"]:
-                logger.info("Transfer done, verifying data")
-                nixl_utils.verify_transfer(tensor, 1, 10 * 16 * 4)
+            logger.info("Verifying data...")
+            ret = nixl_utils.verify_transfer(tensor, 1, 10 * 16 * 4)
+
+            if ret == 1:
                 logger.info("Data verification passed")
                 break
+            time.sleep(1)
+            break
 
     # Initiator code
     else:
@@ -118,8 +120,8 @@ if __name__ == "__main__":
         logger.info("Ready for transfer")
 
         xfer_handle = agent.initialize_xfer(
-            "WRITE", initiator_descs, target_descs, "target", "Done_writing"
-        )
+            "WRITE", initiator_descs, target_descs, "target"
+       )
 
         # Should block until transfer is done
         state = agent.device_transfer(xfer_handle)

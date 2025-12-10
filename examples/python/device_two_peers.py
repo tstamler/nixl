@@ -9,7 +9,7 @@ import torch
 
 from nixl._api import nixl_agent, nixl_agent_config
 from nixl.logging import get_logger
-import nixl_utils as nixl_utils
+import nixl._utils as nixl_utils
 
 logger = get_logger(__name__)
 
@@ -48,18 +48,20 @@ if __name__ == "__main__":
 
     # Use a single 2D tensor with 10 tensors of size 16
     if args.mode == "target":
-        tensor = [(nixl_utils.malloc_passthru(10 * 16 * 4), 10 * 16 * 4, 0, "test")]
+        tensor = [(nixl_utils.malloc_passthru(16 * 4), 16 * 4, 0, "test")]
         logger.info(
             "Running test with tensor shape %s in mode %s", tensor[0][1], args.mode
         )
+        mem = "DRAM"
     else:
-        tensor = torch.ones((10, 16), dtype=torch.float32)
+        tensor = torch.ones((1, 16), dtype=torch.float32)
         logger.info(
             "Running test with tensor shape %s in mode %s", tuple(tensor.shape), args.mode
         )
+        mem = "VRAM"
 
     # Register the single 2D tensor
-    reg_descs = agent.register_memory(tensor)
+    reg_descs = agent.register_memory(tensor, mem)
     if not reg_descs:
         logger.error("Memory registration failed.")
         exit(1)
@@ -69,8 +71,7 @@ if __name__ == "__main__":
         ready = False
 
         # Build transfer descriptors by unraveling first dim into list of row tensors
-        target_rows = [tensor[i, :] for i in range(tensor.shape[0])]
-        target_descs = agent.get_xfer_descs(target_rows)
+        target_descs = agent.get_reg_descs(tensor, mem).trim()
         if not target_descs:
             logger.error("Failed to build target transfer descriptors.")
             exit(1)
@@ -86,7 +87,7 @@ if __name__ == "__main__":
         # Waiting for transfer
         while True:
             logger.info("Verifying data...")
-            ret = nixl_utils.verify_transfer(tensor, 1, 10 * 16 * 4)
+            ret = nixl_utils.verify_n(tensor[0][0], 1, 16 * 4)
 
             if ret == 1:
                 logger.info("Data verification passed")
@@ -124,7 +125,7 @@ if __name__ == "__main__":
        )
 
         # Should block until transfer is done
-        state = agent.device_transfer(xfer_handle)
+        state = agent.device_transfer(xfer_handle, 16 * 4)
         if state == "ERR":
             logger.error("Posting transfer failed.")
             exit(1)

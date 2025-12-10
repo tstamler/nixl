@@ -19,11 +19,21 @@ nixl_dep = declare_dependency(link_with: nixl_lib, include_directories: nixl_inc
 
 py = import('python').find_installation('python3', pure: false)
 
+if cuda_dep.found()
+    cuda_dependencies = [cuda_dep]
+    device_api_inc = [nixl_gpu_inc_dirs]
+    device_api_dep = [ucx_dep, doca_gpunetio_dep]
+else
+    cuda_dependencies = []
+    device_api_inc = []
+    device_api_dep = []
+endif
+
 py.extension_module('_bindings',
-           'nixl_bindings.cpp',
+           'nixl_bindings.cu',
            subdir: (cuda_wheel_dir),
-           dependencies: [nixl_dep, serdes_interface, pybind_dep],
-           include_directories: [nixl_inc_dirs, utils_inc_dirs],
+           dependencies: [nixl_dep, serdes_interface, pybind_dep, cuda_dependencies, device_api_dep],
+           include_directories: [nixl_inc_dirs, utils_inc_dirs, device_api_inc],
            install: true)
 
 py.extension_module('_utils',

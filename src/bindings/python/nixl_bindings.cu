@@ -25,7 +25,7 @@
 #include <cuda_runtime.h>
 
 #include "nixl.h"
-#include <nixl_device.cuh>
+#include "nixl_device.cuh"
 #include "serdes/serdes.h"
 
 namespace py = pybind11;
@@ -41,11 +41,9 @@ TestSingleWriteKernel(nixlGpuXferReqH req_hdnl,
                       size_t size,
                       size_t num_iters,
                       bool is_no_delay) {
-    __shared__ nixlGpuXferStatusH xfer_status[MAX_THREADS];
-    nixlGpuXferStatusH *xfer_status_ptr = &xfer_status[GetReqIdx<level>()];
+    __shared__ nixlGpuXferStatusH xfer_status;
+    nixlGpuXferStatusH *xfer_status_ptr = &xfer_status;
     nixl_status_t status;
-
-    assert(GetReqIdx<level>() < MAX_THREADS);
 
     __syncthreads();
 
@@ -93,8 +91,7 @@ TestSingleWriteKernel(nixlGpuXferReqH req_hdnl,
 
 template<nixl_gpu_level_t level>
 nixl_status_t
-LaunchSingleWriteTest(unsigned num_threads,
-                      nixlGpuXferReqH req_hdnl,
+LaunchSingleWriteTest(nixlGpuXferReqH req_hdnl,
                       unsigned index,
                       size_t src_offset,
                       size_t remote_offset,
@@ -104,15 +101,14 @@ LaunchSingleWriteTest(unsigned num_threads,
     nixl_status_t ret = NIXL_SUCCESS;
     cudaError_t err;
 
-    TestSingleWriteKernel<level><<<1, num_threads>>>(req_hdnl,
-                                                     index,
-                                                     src_offset,
-                                                     remote_offset,
-                                                     size,
-                                                     num_iters,
-                                                     is_no_delay,
-                                                     start_time_ptr,
-                                                     end_time_ptr);
+    //num_threads 1 for now
+    TestSingleWriteKernel<level><<<1, 1>>>(req_hdnl,
+                                           index,
+                                           src_offset,
+                                           remote_offset,
+                                           size,
+                                           num_iters,
+                                           is_no_delay);
 
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
@@ -747,10 +743,10 @@ PYBIND11_MODULE(_bindings, m) {
         .def("deviceTransfer",
              [](nixlAgent &agent, uintptr_t reqh, size_t size) -> nixl_status_t {
                 nixlGpuXferReqH gpu_req_hndl;
-                nixl_status_t ret = agent.createGpuXferReq((nixlXferReqH *)reqh, gpu_req_hndl);
+                nixl_status_t ret = agent.createGpuXferReq(*((nixlXferReqH *)reqh), gpu_req_hndl);
                 throw_nixl_exception(ret);
 
-                ret = LaunchSingleWriteTest<nixl_gpu_level_t::BLOCK>(1, gpu_req_hndl, 0, 0, size, 0, 1, true);
+                ret = LaunchSingleWriteTest<nixl_gpu_level_t::BLOCK>(gpu_req_hndl, 0, 0, 0, size, 1, true);
                 throw_nixl_exception(ret);
                 return ret;
             })

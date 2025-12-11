@@ -33,96 +33,73 @@ namespace py = pybind11;
 typedef std::map<std::string, std::vector<py::bytes>> nixl_py_notifs_t;
 
 template<nixl_gpu_level_t level>
-__global__ void
-TestSingleWriteKernel(nixlGpuXferReqH req_hdnl,
-                      unsigned index,
-                      size_t src_offset,
-                      size_t remote_offset,
-                      size_t size,
-                      size_t num_iters,
-                      bool is_no_delay) {
-    __shared__ nixlGpuXferStatusH xfer_status;
-    nixlGpuXferStatusH *xfer_status_ptr = &xfer_status;
-    nixl_status_t status;
-
-    __syncthreads();
-
-    for (size_t i = 0; i < num_iters; ++i) {
-        status = nixlGpuPostSingleWriteXferReq<level>(
-            req_hdnl, index, src_offset, remote_offset, size, 0, is_no_delay, xfer_status_ptr);
-        if (status != NIXL_IN_PROG) {
-            printf("Thread %d: nixlGpuPostSingleWriteXferReq failed iteration %lu: status=%d (0x%x)\n",
-                   threadIdx.x,
-                   (unsigned long)i,
-                   status,
-                   static_cast<unsigned int>(status));
-            return;
-        }
-
-        status = nixlGpuGetXferStatus<level>(*xfer_status_ptr);
-        if (status != NIXL_SUCCESS && status != NIXL_IN_PROG) {
-            printf("Thread %d: Failed to progress single write transfer iteration %zu: status=%d\n",
-                   threadIdx.x,
-                   i,
-                   status);
-            return;
-        }
-
-        while (status == NIXL_IN_PROG) {
-            status = nixlGpuGetXferStatus<level>(*xfer_status_ptr);
-            if (status != NIXL_SUCCESS && status != NIXL_IN_PROG) {
-                printf("Thread %d: Failed to progress single write transfer iteration %zu: status=%d\n",
-                       threadIdx.x,
-                       i,
-                       status);
-                return;
-            }
-        }
-
-        if (status != NIXL_SUCCESS) {
-            printf("Thread %d: Transfer completion failed iteration %zu: status=%d\n",
-                   threadIdx.x,
-                   i,
-                   status);
-            return;
-        }
+__device__ size_t getStatusIndex() {
+    switch (level) {
+        case nixl_gpu_level_t::THREAD: return threadIdx.x;
+        case nixl_gpu_level_t::WARP:   return threadIdx.x / warpSize;
+        case nixl_gpu_level_t::BLOCK:  return 0;
+        case nixl_gpu_level_t::GRID:   return 0;  // GRID level not currently supported
+        default:                       return 0;
     }
 }
 
 template<nixl_gpu_level_t level>
-nixl_status_t
-LaunchSingleWriteTest(nixlGpuXferReqH req_hdnl,
-                      unsigned index,
-                      size_t src_offset,
-                      size_t remote_offset,
-                      size_t size,
-                      size_t num_iters,
-                      bool is_no_delay) {
-    nixl_status_t ret = NIXL_SUCCESS;
-    cudaError_t err;
+__global__ void vramToDramKernel(nixlGpuXferReqH req_handle,
+                                  nixlGpuXferStatusH *status_array,
+                                  size_t transfer_size) {
+    nixlGpuXferStatusH *status = &status_array[getStatusIndex<level>()];
 
-    //num_threads 1 for now
-    TestSingleWriteKernel<level><<<1, 1>>>(req_hdnl,
-                                           index,
-                                           src_offset,
-                                           remote_offset,
-                                           size,
-                                           num_iters,
-                                           is_no_delay);
+    nixl_status_t result = nixlGpuPostSingleWriteXferReq<level>(
+        req_handle, 0, 0, 0, transfer_size, 0, true, status);
 
-    err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) {
-        printf("Failed to synchronize: %s\n", cudaGetErrorString(err));
-        ret = NIXL_ERR_BACKEND;
+    if (result != NIXL_IN_PROG) {
+        printf("GPU: Failed to post transfer: %d\n", result);
+        return;
     }
 
-    err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("Failed to launch kernel: %s\n", cudaGetErrorString(err));
-        ret = NIXL_ERR_BACKEND;
+    while (nixlGpuGetXferStatus<level>(*status) == NIXL_IN_PROG) {}
+
+    result = nixlGpuGetXferStatus<level>(*status);
+    if (result != NIXL_SUCCESS) {
+        printf("GPU: Transfer failed: %d\n", result);
+        return;
+    }
+}
+
+void performGpuTransfer(nixlGpuXferReqH gpu_req_handle, nixl_gpu_level_t level, size_t buffer_size) {
+    constexpr size_t num_threads = 32;
+    size_t num_status_entries = 1;
+
+    switch (level) {
+        case nixl_gpu_level_t::THREAD: num_status_entries = num_threads; break;
+        case nixl_gpu_level_t::WARP:   num_status_entries = num_threads / 32; break;
+        case nixl_gpu_level_t::BLOCK:  num_status_entries = 1; break;
+        case nixl_gpu_level_t::GRID:   num_status_entries = 1; break;  // Not currently supported
     }
 
-    return ret;
+    nixlGpuXferStatusH *device_status = nullptr;
+    cudaMalloc(&device_status, sizeof(nixlGpuXferStatusH) * num_status_entries);
+
+    switch (level) {
+        case nixl_gpu_level_t::BLOCK:
+            vramToDramKernel<nixl_gpu_level_t::BLOCK><<<1, num_threads>>>(
+                gpu_req_handle, device_status, buffer_size);
+            break;
+        case nixl_gpu_level_t::THREAD:
+            vramToDramKernel<nixl_gpu_level_t::THREAD><<<1, num_threads>>>(
+                gpu_req_handle, device_status, buffer_size);
+            break;
+        case nixl_gpu_level_t::WARP:
+            vramToDramKernel<nixl_gpu_level_t::WARP><<<1, num_threads>>>(
+                gpu_req_handle, device_status, buffer_size);
+            break;
+        case nixl_gpu_level_t::GRID:  // GRID level not currently supported
+            break;
+    }
+
+    cudaDeviceSynchronize();
+
+    cudaFree(device_status);
 }
 
 class nixlNotPostedError : public std::runtime_error {
@@ -746,8 +723,7 @@ PYBIND11_MODULE(_bindings, m) {
                 nixl_status_t ret = agent.createGpuXferReq(*((nixlXferReqH *)reqh), gpu_req_hndl);
                 throw_nixl_exception(ret);
 
-                ret = LaunchSingleWriteTest<nixl_gpu_level_t::BLOCK>(gpu_req_hndl, 0, 0, 0, size, 1, true);
-                throw_nixl_exception(ret);
+                performGpuTransfer(gpu_req_hndl, nixl_gpu_level_t::BLOCK, size);
                 return ret;
             })
         .def(

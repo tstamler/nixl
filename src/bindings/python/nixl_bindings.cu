@@ -32,6 +32,8 @@ namespace py = pybind11;
 
 typedef std::map<std::string, std::vector<py::bytes>> nixl_py_notifs_t;
 
+#define NUM_THREADS 32
+
 template<nixl_gpu_level_t level>
 __device__ size_t getStatusIndex() {
     switch (level) {
@@ -45,8 +47,8 @@ __device__ size_t getStatusIndex() {
 
 template<nixl_gpu_level_t level>
 __global__ void vramToDramKernel(nixlGpuXferReqH req_handle,
-                                  nixlGpuXferStatusH *status_array,
                                   size_t transfer_size) {
+    __shared__ nixlGpuXferStatusH status_array[NUM_THREADS];
     nixlGpuXferStatusH *status = &status_array[getStatusIndex<level>()];
 
     nixl_status_t result = nixlGpuPostSingleWriteXferReq<level>(
@@ -67,39 +69,30 @@ __global__ void vramToDramKernel(nixlGpuXferReqH req_handle,
 }
 
 void performGpuTransfer(nixlGpuXferReqH gpu_req_handle, nixl_gpu_level_t level, size_t buffer_size) {
-    constexpr size_t num_threads = 32;
-    size_t num_status_entries = 1;
-
-    switch (level) {
-        case nixl_gpu_level_t::THREAD: num_status_entries = num_threads; break;
-        case nixl_gpu_level_t::WARP:   num_status_entries = num_threads / 32; break;
-        case nixl_gpu_level_t::BLOCK:  num_status_entries = 1; break;
-        case nixl_gpu_level_t::GRID:   num_status_entries = 1; break;  // Not currently supported
-    }
-
-    nixlGpuXferStatusH *device_status = nullptr;
-    cudaMalloc(&device_status, sizeof(nixlGpuXferStatusH) * num_status_entries);
+    constexpr size_t num_threads = NUM_THREADS;
+   //cudaMalloc(&device_status, sizeof(nixlGpuXferStatusH) * num_status_entries);
 
     switch (level) {
         case nixl_gpu_level_t::BLOCK:
             vramToDramKernel<nixl_gpu_level_t::BLOCK><<<1, num_threads>>>(
-                gpu_req_handle, device_status, buffer_size);
+                gpu_req_handle, buffer_size);
             break;
         case nixl_gpu_level_t::THREAD:
             vramToDramKernel<nixl_gpu_level_t::THREAD><<<1, num_threads>>>(
-                gpu_req_handle, device_status, buffer_size);
+                gpu_req_handle, buffer_size);
             break;
         case nixl_gpu_level_t::WARP:
             vramToDramKernel<nixl_gpu_level_t::WARP><<<1, num_threads>>>(
-                gpu_req_handle, device_status, buffer_size);
+                gpu_req_handle, buffer_size);
             break;
         case nixl_gpu_level_t::GRID:  // GRID level not currently supported
             break;
     }
 
-    cudaDeviceSynchronize();
+    //This sample will use cudaGraph, which will not need these functions
+    //cudaDeviceSynchronize();
 
-    cudaFree(device_status);
+    //cudaFree(device_status);
 }
 
 class nixlNotPostedError : public std::runtime_error {
